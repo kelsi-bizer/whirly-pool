@@ -245,18 +245,17 @@
   let ducks = [];
   const DUCK_MASS = 1.6; // ball mass = 1
   function newDucks(count) {
-    const r = ball.r * 1.3, off = Math.random() * Math.PI * 2;
+    // on piling levels the ducks are a little smaller, so they can squeeze between the posts
+    const r = ball.r * (PILING_COUNT[level] ? 1.0 : 1.3), off = Math.random() * Math.PI * 2;
     ducks = Array.from({ length: count }, (_, i) => {
       const a = off + i * Math.PI * 2 / count, d = R * (0.65 + 0.12 * (i % 3));
-      return { x: CX + Math.cos(a) * d, y: CY + Math.sin(a) * d, vx: 0, vy: 0, r, dir: a + Math.PI / 2, bobP: i * 2.1, wa: Math.random() * Math.PI * 2, cool: 0 };
+      return { x: CX + Math.cos(a) * d, y: CY + Math.sin(a) * d, vx: 0, vy: 0, r, dir: a + Math.PI / 2, bobP: i * 2.1, wa: Math.random() * Math.PI * 2, fling: 0 };
     });
   }
   function stepDucks(dt) {
     const drag = Math.exp(-0.8 * dt), maxSp = 280;
-    // with pilings around the drain, ducks are lifted back out before they reach the posts, so they can't wedge into the gaps
-    const pilingRim = pilings.length ? R * 0.4 + pilingPos(pilings[0]).r : 0;
+    const floor = HOLE * 1.15, pushR = floor + HOLE * 1.25;
     for (const k of ducks) {
-      const floor = pilingRim ? pilingRim + k.r + 3 : HOLE * 1.15, pushR = floor + HOLE * 1.25;
       const dx = k.x - CX, dy = k.y - CY, d = Math.hypot(dx, dy) || 0.001, nx = dx / d, ny = dy / d;
       // the current: swirls harder toward the drain and draws ducks in from anywhere in the pool
       const kk = Math.max(0, 1 - d / (R * 1.3));
@@ -267,7 +266,36 @@
       k.wa += (Math.random() - 0.5) * 3 * dt;
       ax += Math.cos(k.wa) * 45; ay += Math.sin(k.wa) * 45;
       // too buoyant to go under: close to the drain the water lifts it back out, smoothly and harder the closer it gets
-      if (d < pushR) { const q = (pushR - d) / (pushR - floor); const push = 1800 * Math.min(1, q) * Math.min(1, q); ax += nx * push; ay += ny * push; }
+      if (d < pushR) {
+        const q = (pushR - d) / (pushR - floor), push = 1800 * Math.min(1, q) * Math.min(1, q);
+        // with pilings around the drain, throw it out through the nearest gap between the posts
+        let ox = nx, oy = ny;
+        if (pilings.length) {
+          const step = Math.PI * 2 / pilings.length, ang = Math.atan2(dy, dx);
+          const ga = pilings[0].a + step / 2 + Math.round((ang - pilings[0].a - step / 2) / step) * step;
+          ox = Math.cos(ga); oy = Math.sin(ga);
+        }
+        ax += ox * push; ay += oy * push;
+      }
+      // once the drain throws a duck out on a piling level, it keeps going until it's clear of the posts
+      if (pilings.length) {
+        const ringOut = R * 0.4 + pilingPos(pilings[0]).r + k.r + 8;
+        if (d < pushR) k.fling = 1.2;
+        if (k.fling > 0) {
+          k.fling -= dt;
+          if (d > ringOut) k.fling = 0;
+          const step = Math.PI * 2 / pilings.length, ang = Math.atan2(dy, dx);
+          const ga = pilings[0].a + step / 2 + Math.round((ang - pilings[0].a - step / 2) / step) * step;
+          ax = Math.cos(ga) * 1000 - ny * swirl * 0.25; ay = Math.sin(ga) * 1000 + nx * swirl * 0.25;
+        }
+      }
+      // between the posts, lean toward the middle of the gap so a duck threads through instead of snagging
+      if (pilings.length && d < R * 0.4 + pilingPos(pilings[0]).r + k.r) {
+        const step = Math.PI * 2 / pilings.length, ang = Math.atan2(dy, dx);
+        const ga = pilings[0].a + step / 2 + Math.round((ang - pilings[0].a - step / 2) / step) * step;
+        let off = ang - ga; off = Math.atan2(Math.sin(off), Math.cos(off));
+        ax += ny * off * 900; ay += -nx * off * 900;
+      }
       if (d < floor) { k.x = CX + nx * floor; k.y = CY + ny * floor; const vr = k.vx * nx + k.vy * ny; if (vr < 0) { k.vx -= vr * nx; k.vy -= vr * ny; } }
       k.vx = (k.vx + ax * dt) * drag; k.vy = (k.vy + ay * dt) * drag;
       // keep them floaty: ease any high speed back down instead of letting it spike
