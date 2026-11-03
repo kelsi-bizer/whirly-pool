@@ -207,18 +207,37 @@
 
   // ---------- game state ----------
   let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, level = 1;
-  const LAST_LEVEL = 4;
+  const LAST_LEVEL = 5;
+  const PILING_COUNT = { 5: 4 }; // levels with wooden pilings around the drain
   const DUCK_COUNT = { 2: 3, 4: 5 }; // levels with rubber ducks, and how many
   // (the lane-rope level keeps its old storage key from when it was level 2)
-  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4' };
-  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time' };
-  const bests = { 1: null, 2: null, 3: null, 4: null };
-  for (const lv of [1, 2, 3, 4]) {
+  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5' };
+  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings' };
+  const bests = { 1: null, 2: null, 3: null, 4: null, 5: null };
+  for (const lv of [1, 2, 3, 4, 5]) {
     try { const b = parseFloat(localStorage.getItem(BEST_KEYS[lv])); if (b > 0) bests[lv] = b; } catch (_) {}
   }
   // Level 3 obstacle: a floating lane rope ringed around the whirlpool, with one gap that drifts around.
   const ring = { a: 0, speed: -0.55, gap: 0.95, th: 4.5, cap: 6 };
   const ringR = () => R * 0.62;
+
+  // Level 5 obstacle: wooden pilings standing in a ring around the drain. They never move.
+  let pilings = [];
+  function newPilings(count) {
+    const off = Math.random() * Math.PI * 2;
+    pilings = Array.from({ length: count }, (_, i) => ({ a: off + i * Math.PI * 2 / count, seed: Math.random() * 10 }));
+  }
+  function pilingPos(pl) {
+    const pr = R * 0.55;
+    return { x: CX + Math.cos(pl.a) * pr, y: CY + Math.sin(pl.a) * pr, r: Math.max(15, ball ? ball.r * 1.25 : 18) };
+  }
+  function collidePilings(b) {
+    for (const pl of pilings) {
+      const p = pilingPos(pl);
+      const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 0.001, min = b.r + p.r;
+      if (d < min) bounceOff(b, dx / d, dy / d, min, p.x, p.y);
+    }
+  }
 
   // Level 2 obstacle: three rubber ducks carried by the current. They circle the whirlpool but never go down it.
   let ducks = [];
@@ -312,6 +331,8 @@
     clearTimeout(bannerTimer);
     ducks = [];
     if (DUCK_COUNT[level]) newDucks(DUCK_COUNT[level]);
+    pilings = [];
+    if (PILING_COUNT[level]) newPilings(PILING_COUNT[level]);
     if (level === 3) ring.a = Math.random() * Math.PI * 2;
     if (BANNERS[level]) {
       document.getElementById('bannerLevel').textContent = 'Level ' + level;
@@ -405,6 +426,7 @@
       if (b.y < T) { if (b.vy < -120) ripple(b.x, T - b.r, b.r * 2.5, 0.8, 0.6); b.y = T; b.vy = -b.vy * 0.45; }
       if (b.y > B) { if (b.vy > 120) ripple(b.x, B + b.r, b.r * 2.5, 0.8, 0.6); b.y = B; b.vy = -b.vy * 0.45; }
       if (level === 3) collideRing(b, d);
+      if (pilings.length) collidePilings(b);
       if (DUCK_COUNT[level]) for (const k of ducks) {
         const hit = collide(b, 1, k, DUCK_MASS, 0.75);
         if (hit > 90) ripple((b.x + k.x) / 2, (b.y + k.y) / 2, b.r * 2.6, 0.8, Math.min(0.7, hit / 400));
@@ -607,6 +629,42 @@
     }
   }
 
+  function drawPilings(t) {
+    for (const pl of pilings) {
+      const { x, y, r } = pilingPos(pl);
+      ctx.save();
+      // foam where the current wraps around the post, trailing downstream (the current runs clockwise)
+      const flow = pl.a + Math.PI / 2;
+      ctx.lineCap = 'round';
+      for (let j = 0; j < 3; j++) {
+        const ph = ((t * 0.9 + j / 3 + pl.seed) % 1);
+        ctx.strokeStyle = 'rgba(255,255,255,' + (0.5 * (1 - ph)).toFixed(3) + ')';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, r + 3 + ph * r * 0.9, flow - Math.PI / 2 - 0.6, flow - Math.PI / 2 + 0.6); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, r + 3 + ph * r * 0.9, flow + Math.PI / 2 - 0.6, flow + Math.PI / 2 + 0.6); ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(x, y, r + 2, 0, Math.PI * 2); ctx.stroke();
+      // shadow
+      ctx.fillStyle = 'rgba(13,59,92,.3)';
+      ctx.beginPath(); ctx.arc(x + 4, y + 6, r, 0, Math.PI * 2); ctx.fill();
+      // bark edge, then the sawn top with growth rings
+      ctx.fillStyle = '#5b3a22';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      const top = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r * 0.88);
+      top.addColorStop(0, '#e2bd8a'); top.addColorStop(1, '#b98a57');
+      ctx.fillStyle = top;
+      ctx.beginPath(); ctx.arc(x, y, r * 0.84, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(110,70,35,.45)'; ctx.lineWidth = 1;
+      for (let k = 1; k <= 3; k++) {
+        ctx.beginPath(); ctx.ellipse(x + 1, y, r * 0.2 * k, r * 0.19 * k, pl.seed, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(110,70,35,.6)';
+      ctx.beginPath(); ctx.arc(x + 1, y, r * 0.07, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
   function drawRing(t) {
     const Rr = ringR(), span = Math.PI * 2 - ring.gap;
     const a0 = ring.a + ring.gap / 2, a1 = a0 + span;
@@ -706,6 +764,7 @@
     drawRipples(dt);
     if (level === 3) drawRing(wt);
     if (DUCK_COUNT[level]) drawDucks(wt);
+    if (pilings.length) drawPilings(wt);
     if (ball && state !== 'dropping') drawBall(wt);
     ctx.restore();
     if (ball && state === 'dropping') drawBall(wt); // still in the air, above the clip
