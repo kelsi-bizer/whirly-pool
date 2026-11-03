@@ -207,16 +207,17 @@
 
   // ---------- game state ----------
   let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, level = 1;
-  const LAST_LEVEL = 7;
+  const LAST_LEVEL = 8;
   const PILING_COUNT = { 5: 4, 6: 4, 7: 4 }; // levels with wooden pilings around the drain
   // levels with a lane rope: its size (share of the whirlpool radius) and gap width (radians)
   const ROPE = { 3: { size: 0.62, gap: 0.95 }, 6: { size: 0.9, gap: 0.72 } };
-  const DUCK_COUNT = { 2: 3, 4: 5, 7: 5 }; // levels with rubber ducks, and how many
+  const DUCK_COUNT = { 2: 3, 4: 5, 7: 5, 8: 10 }; // levels with rubber ducks, and how many
   // (the lane-rope level keeps its old storage key from when it was level 2)
-  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6', 7: 'whirlpool-best-7' };
-  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings', 7: 'Ducks and pilings' };
-  const bests = { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null };
-  for (const lv of [1, 2, 3, 4, 5, 6, 7]) {
+  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6', 7: 'whirlpool-best-7', 8: 'whirlpool-best-8' };
+  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings', 7: 'Ducks and pilings', 8: 'Ten ducks!' };
+  const bests = {};
+  for (let lv = 1; lv <= LAST_LEVEL; lv++) {
+    bests[lv] = null;
     try { const b = parseFloat(localStorage.getItem(BEST_KEYS[lv])); if (b > 0) bests[lv] = b; } catch (_) {}
   }
   // Level 3 obstacle: a floating lane rope ringed around the whirlpool, with one gap that drifts around.
