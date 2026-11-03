@@ -207,16 +207,16 @@
 
   // ---------- game state ----------
   let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, level = 1;
-  const LAST_LEVEL = 6;
-  const PILING_COUNT = { 5: 4, 6: 4 }; // levels with wooden pilings around the drain
+  const LAST_LEVEL = 7;
+  const PILING_COUNT = { 5: 4, 6: 4, 7: 4 }; // levels with wooden pilings around the drain
   // levels with a lane rope: its size (share of the whirlpool radius) and gap width (radians)
   const ROPE = { 3: { size: 0.62, gap: 0.95 }, 6: { size: 0.9, gap: 0.72 } };
-  const DUCK_COUNT = { 2: 3, 4: 5 }; // levels with rubber ducks, and how many
+  const DUCK_COUNT = { 2: 3, 4: 5, 7: 5 }; // levels with rubber ducks, and how many
   // (the lane-rope level keeps its old storage key from when it was level 2)
-  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6' };
-  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings' };
-  const bests = { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
-  for (const lv of [1, 2, 3, 4, 5, 6]) {
+  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6', 7: 'whirlpool-best-7' };
+  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings', 7: 'Ducks and pilings' };
+  const bests = { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null };
+  for (const lv of [1, 2, 3, 4, 5, 6, 7]) {
     try { const b = parseFloat(localStorage.getItem(BEST_KEYS[lv])); if (b > 0) bests[lv] = b; } catch (_) {}
   }
   // Level 3 obstacle: a floating lane rope ringed around the whirlpool, with one gap that drifts around.
@@ -252,8 +252,11 @@
     });
   }
   function stepDucks(dt) {
-    const drag = Math.exp(-0.8 * dt), pushR = HOLE * 2.4, floor = HOLE * 1.15, maxSp = 280;
+    const drag = Math.exp(-0.8 * dt), maxSp = 280;
+    // with pilings around the drain, ducks are lifted back out before they reach the posts, so they can't wedge into the gaps
+    const pilingRim = pilings.length ? R * 0.4 + pilingPos(pilings[0]).r : 0;
     for (const k of ducks) {
+      const floor = pilingRim ? pilingRim + k.r + 3 : HOLE * 1.15, pushR = floor + HOLE * 1.25;
       const dx = k.x - CX, dy = k.y - CY, d = Math.hypot(dx, dy) || 0.001, nx = dx / d, ny = dy / d;
       // the current: swirls harder toward the drain and draws ducks in from anywhere in the pool
       const kk = Math.max(0, 1 - d / (R * 1.3));
@@ -270,6 +273,13 @@
       // keep them floaty: ease any high speed back down instead of letting it spike
       const spd = Math.hypot(k.vx, k.vy);
       if (spd > maxSp) { const f = 1 - Math.min(1, dt * 4) * (1 - maxSp / spd); k.vx *= f; k.vy *= f; }
+      for (const pl of pilings) {
+        const q = pilingPos(pl), ex = k.x - q.x, ey = k.y - q.y, ed = Math.hypot(ex, ey) || 0.001, min = k.r + q.r;
+        if (ed < min) {
+          const ux = ex / ed, uy = ey / ed; k.x = q.x + ux * min; k.y = q.y + uy * min;
+          const vn = k.vx * ux + k.vy * uy; if (vn < 0) { k.vx -= 1.3 * vn * ux; k.vy -= 1.3 * vn * uy; }
+        }
+      }
       k.x += k.vx * dt; k.y += k.vy * dt;
       // pool walls
       const L = pool.x + k.r, Rt = pool.x + pool.w - k.r, T = pool.y + k.r, B = pool.y + pool.h - k.r;
