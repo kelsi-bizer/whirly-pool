@@ -207,15 +207,15 @@
 
   // ---------- game state ----------
   let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, level = 1;
-  const LAST_LEVEL = 9;
-  const FOUNTAIN_COUNT = { 9: 5 }; // levels with pulsing fountains around the whirlpool
+  const LAST_LEVEL = 10;
+  const FOUNTAIN_COUNT = { 9: 5, 10: 5 }; // levels with pulsing fountains around the whirlpool
   const PILING_COUNT = { 5: 4, 6: 4, 7: 4 }; // levels with wooden pilings around the drain
   // levels with a lane rope: its size (share of the whirlpool radius) and gap width (radians)
   const ROPE = { 3: { size: 0.62, gap: 0.95 }, 6: { size: 0.9, gap: 0.72 } };
-  const DUCK_COUNT = { 2: 3, 4: 5, 7: 5, 8: 10 }; // levels with rubber ducks, and how many
+  const DUCK_COUNT = { 2: 3, 4: 5, 7: 5, 8: 10, 10: 4 }; // levels with rubber ducks, and how many
   // (the lane-rope level keeps its old storage key from when it was level 2)
-  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6', 7: 'whirlpool-best-7', 8: 'whirlpool-best-8', 9: 'whirlpool-best-9' };
-  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings', 7: 'Ducks and pilings', 8: 'Ten ducks!', 9: 'Slip past the fountains while they rest' };
+  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6', 7: 'whirlpool-best-7', 8: 'whirlpool-best-8', 9: 'whirlpool-best-9', 10: 'whirlpool-best-10' };
+  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings', 7: 'Ducks and pilings', 8: 'Ten ducks!', 9: 'Slip past the fountains while they rest', 10: 'Fountains and ducks' };
   const bests = {};
   for (let lv = 1; lv <= LAST_LEVEL; lv++) {
     bests[lv] = null;
@@ -285,6 +285,15 @@
       // each duck wanders with its own slowly turning nudge
       k.wa += (Math.random() - 0.5) * 3 * dt;
       ax += Math.cos(k.wa) * 45; ay += Math.sin(k.wa) * 45;
+      // fountains push ducks outward too (a bit less than the ball; ducks are heavier)
+      for (const f of fountains) {
+        const pw = fountainPower(f); if (!pw) continue;
+        const q = fountainPos(f), fx = k.x - q.x, fy = k.y - q.y, fd = Math.hypot(fx, fy) || 0.001;
+        if (fd < q.reach + k.r * 0.5) {
+          const push = 1100 * pw * Math.max(0, 1 - fd / (q.reach + k.r * 0.5));
+          ax += (nx * 0.75 + fx / fd * 0.25) * push; ay += (ny * 0.75 + fy / fd * 0.25) * push;
+        }
+      }
       // too buoyant to go under: close to the drain the water lifts it back out, smoothly and harder the closer it gets
       if (d < pushR) {
         const q = (pushR - d) / (pushR - floor), push = 1800 * Math.min(1, q) * Math.min(1, q);
