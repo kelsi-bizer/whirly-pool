@@ -222,13 +222,15 @@
   let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, level = 1;
   const LAST_LEVEL = 10;
   const FOUNTAIN_COUNT = { 9: 5, 10: 5 }; // levels with pulsing fountains around the whirlpool
-  const PILING_COUNT = { 5: 4, 6: 4, 7: 4 }; // levels with wooden pilings around the drain
+  const PILING_COUNT = {}; // wooden pilings: retired from the level list, code kept for later
+  // levels with spinning pool noodles: how many arms, and how far out they reach (share of the whirlpool radius)
+  const NOODLES = { 5: { arms: 4, len: 0.95 }, 6: { arms: 4, len: 0.78 }, 7: { arms: 4, len: 0.95 } };
   // levels with a lane rope: its size (share of the whirlpool radius) and gap width (radians)
   const ROPE = { 3: { size: 0.62, gap: 0.95 }, 6: { size: 0.9, gap: 0.72 } };
   const DUCK_COUNT = { 2: 3, 4: 5, 7: 5, 8: 10, 10: 4 }; // levels with rubber ducks, and how many
   // (the lane-rope level keeps its old storage key from when it was level 2)
-  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6', 7: 'whirlpool-best-7', 8: 'whirlpool-best-8', 9: 'whirlpool-best-9', 10: 'whirlpool-best-10' };
-  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings', 7: 'Ducks and pilings', 8: 'Ten ducks!', 9: 'Slip past the fountains while they rest', 10: 'Fountains and ducks' };
+  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-noodles-5', 6: 'whirlpool-best-noodles-6', 7: 'whirlpool-best-noodles-7', 8: 'whirlpool-best-8', 9: 'whirlpool-best-9', 10: 'whirlpool-best-10' };
+  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Dodge the spinning pool noodles', 6: 'Through the rope, then past the noodles', 7: 'Ducks and noodles', 8: 'Ten ducks!', 9: 'Slip past the fountains while they rest', 10: 'Fountains and ducks' };
   const bests = {};
   for (let lv = 1; lv <= LAST_LEVEL; lv++) {
     bests[lv] = null;
@@ -254,6 +256,39 @@
     if (c >= F_ON) return 0;
     const ramp = 0.1, x = Math.min(1, c / ramp, (F_ON - c) / ramp);
     return x * x * (3 - 2 * x);
+  }
+
+  // Pool noodles: foam arms sticking out from around the drain like wheel spokes, sweeping against the current.
+  const noodle = { on: false, a: 0, w: -2.0, arms: 4, len: 0.95, th: 7 };
+  function noodleArms() {
+    const r0 = HOLE * 1.5, r1 = R * noodle.len, out = [];
+    for (let i = 0; i < noodle.arms; i++) {
+      const a = noodle.a + i * Math.PI * 2 / noodle.arms, c = Math.cos(a), s = Math.sin(a);
+      out.push({ a, c, s, r0, r1, x0: CX + c * r0, y0: CY + s * r0, x1: CX + c * r1, y1: CY + s * r1 });
+    }
+    return out;
+  }
+  // bounce a round thing (ball or duck) off the moving arms; the arm's own motion is passed on, so it gets whacked
+  function collideNoodles(o, e) {
+    for (const arm of noodleArms()) {
+      const px = o.x - CX, py = o.y - CY;
+      const t = Math.max(arm.r0, Math.min(arm.r1, px * arm.c + py * arm.s));   // distance along the arm
+      const qx = CX + arm.c * t, qy = CY + arm.s * t;                            // closest point on the arm
+      let nx = o.x - qx, ny = o.y - qy, d = Math.hypot(nx, ny);
+      const min = o.r + noodle.th;
+      if (d >= min) continue;
+      if (d < 0.001) { nx = -arm.s; ny = arm.c; d = 1; } else { nx /= d; ny /= d; }
+      o.x = qx + nx * min; o.y = qy + ny * min;
+      const avx = -arm.s * noodle.w * t, avy = arm.c * noodle.w * t;            // the arm's speed at that point
+      const vn = (o.vx - avx) * nx + (o.vy - avy) * ny;
+      if (vn < 0) {
+        o.vx -= (1 + e) * vn * nx; o.vy -= (1 + e) * vn * ny;
+        // the noodle flicks whatever it hits outward, away from the drain
+        const flick = Math.min(1, -vn / 80) * (150 + Math.abs(noodle.w) * t * 0.7);
+        o.vx += arm.c * flick; o.vy += arm.s * flick;
+        if (o === ball && vn < -90) ripple(qx, qy, o.r * 2.4, 0.8, 0.55);
+      }
+    }
   }
 
   // Level 5 obstacle: wooden pilings standing in a ring around the drain. They never move.
@@ -351,6 +386,7 @@
         }
       }
       k.x += k.vx * dt; k.y += k.vy * dt;
+      if (noodle.on) collideNoodles(k, 0.4);
       // pool walls
       const L = pool.x + k.r, Rt = pool.x + pool.w - k.r, T = pool.y + k.r, B = pool.y + pool.h - k.r;
       if (k.x < L) { k.x = L; k.vx = Math.abs(k.vx) * 0.8; }
@@ -416,6 +452,8 @@
     if (DUCK_COUNT[level]) newDucks(DUCK_COUNT[level]);
     pilings = [];
     if (PILING_COUNT[level]) newPilings(PILING_COUNT[level]);
+    noodle.on = !!NOODLES[level];
+    if (noodle.on) { noodle.a = Math.random() * Math.PI * 2; noodle.arms = NOODLES[level].arms; noodle.len = NOODLES[level].len; }
     fountains = [];
     if (FOUNTAIN_COUNT[level]) newFountains(FOUNTAIN_COUNT[level]);
     if (ROPE[level]) { ring.a = Math.random() * Math.PI * 2; ring.gap = ROPE[level].gap; }
@@ -429,8 +467,8 @@
   let bannerTimer = 0;
 
   // level picker: on the start screen, and on the level badge at any time
-  const LEVEL_NAMES = { 1: 'Open pool', 2: '3 ducks', 3: 'Lane rope', 4: '5 ducks', 5: 'Pilings', 6: 'Rope + pilings',
-    7: 'Ducks + pilings', 8: '10 ducks', 9: 'Fountains', 10: 'Fountains + ducks' };
+  const LEVEL_NAMES = { 1: 'Open pool', 2: '3 ducks', 3: 'Lane rope', 4: '5 ducks', 5: 'Pool noodles', 6: 'Rope + noodles',
+    7: 'Ducks + noodles', 8: '10 ducks', 9: 'Fountains', 10: 'Fountains + ducks' };
   const startLevelEl = document.getElementById('startLevel'), levelSelectEl = document.getElementById('levelSelect');
   for (let lv = 1; lv <= LAST_LEVEL; lv++) {
     const label = 'Level ' + lv + (LEVEL_NAMES[lv] ? ' · ' + LEVEL_NAMES[lv] : '');
@@ -497,6 +535,7 @@
   function step(dt) {
     readTilt();
     ft += dt;
+    if (noodle.on) noodle.a += noodle.w * dt;
     if (ROPE[level]) ring.a += ring.speed * dt;
     if (DUCK_COUNT[level]) stepDucks(dt);
     const b = ball; if (!b) return;
@@ -549,6 +588,7 @@
       if (b.y > B) { if (b.vy > 120) ripple(b.x, B + b.r, b.r * 2.5, 0.8, 0.6); b.y = B; b.vy = -b.vy * 0.45; }
       if (ROPE[level]) collideRing(b, d);
       if (pilings.length) collidePilings(b);
+      if (noodle.on) collideNoodles(b, 0.8);
       if (DUCK_COUNT[level]) for (const k of ducks) {
         const hit = collide(b, 1, k, DUCK_MASS, 0.75);
         if (hit > 90) ripple((b.x + k.x) / 2, (b.y + k.y) / 2, b.r * 2.6, 0.8, Math.min(0.7, hit / 400));
@@ -795,6 +835,41 @@
     }
   }
 
+  function drawNoodles(t) {
+    const th = noodle.th;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const arm of noodleArms()) {
+      const bob = Math.sin(t * 2.2 + arm.a) * 0.6;
+      // shadow on the water, and the wake it pushes along its leading side
+      ctx.strokeStyle = 'rgba(13,59,92,.25)'; ctx.lineWidth = th * 2;
+      ctx.beginPath(); ctx.moveTo(arm.x0 + 3, arm.y0 + 5); ctx.lineTo(arm.x1 + 3, arm.y1 + 5); ctx.stroke();
+      const lead = noodle.w < 0 ? 1 : -1, wx = arm.s * lead * (th + 4), wy = -arm.c * lead * (th + 4);
+      ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(arm.x0 + wx, arm.y0 + wy); ctx.lineTo(arm.x1 + wx, arm.y1 + wy); ctx.stroke();
+      // the foam noodle
+      ctx.strokeStyle = '#ff5fa2'; ctx.lineWidth = th * 2 + bob;
+      ctx.beginPath(); ctx.moveTo(arm.x0, arm.y0); ctx.lineTo(arm.x1, arm.y1); ctx.stroke();
+      // ridges along its length
+      ctx.strokeStyle = 'rgba(180,30,95,.45)'; ctx.lineWidth = 1.2;
+      for (let r = arm.r0 + 6; r < arm.r1 - 2; r += 7) {
+        const x = CX + arm.c * r, y = CY + arm.s * r;
+        ctx.beginPath(); ctx.moveTo(x - arm.s * th * 0.85, y + arm.c * th * 0.85); ctx.lineTo(x + arm.s * th * 0.85, y - arm.c * th * 0.85); ctx.stroke();
+      }
+      // shine along the top
+      ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.moveTo(arm.x0 - arm.s * th * 0.4, arm.y0 + arm.c * th * 0.4); ctx.lineTo(arm.x1 - arm.s * th * 0.4, arm.y1 + arm.c * th * 0.4); ctx.stroke();
+      // hollow foam ends
+      for (const [x, y] of [[arm.x0, arm.y0], [arm.x1, arm.y1]]) {
+        ctx.fillStyle = '#e04585';
+        ctx.beginPath(); ctx.arc(x, y, th, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(120,10,60,.55)';
+        ctx.beginPath(); ctx.arc(x, y, th * 0.38, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
   function drawPilings(t) {
     for (const pl of pilings) {
       const { x, y, r } = pilingPos(pl);
@@ -929,6 +1004,7 @@
     drawVortex(wt);
     drawRipples(dt);
     if (ROPE[level]) drawRing(wt);
+    if (noodle.on) drawNoodles(wt);
     if (DUCK_COUNT[level]) drawDucks(wt);
     if (pilings.length) drawPilings(wt);
     if (fountains.length) drawFountains(wt);
