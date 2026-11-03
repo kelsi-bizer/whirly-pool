@@ -207,14 +207,15 @@
 
   // ---------- game state ----------
   let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, level = 1;
-  const LAST_LEVEL = 8;
+  const LAST_LEVEL = 9;
+  const FOUNTAIN_COUNT = { 9: 3 }; // levels with pulsing fountains around the whirlpool
   const PILING_COUNT = { 5: 4, 6: 4, 7: 4 }; // levels with wooden pilings around the drain
   // levels with a lane rope: its size (share of the whirlpool radius) and gap width (radians)
   const ROPE = { 3: { size: 0.62, gap: 0.95 }, 6: { size: 0.9, gap: 0.72 } };
   const DUCK_COUNT = { 2: 3, 4: 5, 7: 5, 8: 10 }; // levels with rubber ducks, and how many
   // (the lane-rope level keeps its old storage key from when it was level 2)
-  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6', 7: 'whirlpool-best-7', 8: 'whirlpool-best-8' };
-  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings', 7: 'Ducks and pilings', 8: 'Ten ducks!' };
+  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6', 7: 'whirlpool-best-7', 8: 'whirlpool-best-8', 9: 'whirlpool-best-9' };
+  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings', 7: 'Ducks and pilings', 8: 'Ten ducks!', 9: 'Slip past the fountains while they rest' };
   const bests = {};
   for (let lv = 1; lv <= LAST_LEVEL; lv++) {
     bests[lv] = null;
@@ -223,6 +224,24 @@
   // Level 3 obstacle: a floating lane rope ringed around the whirlpool, with one gap that drifts around.
   const ring = { a: 0, speed: -0.55, gap: 0.95, th: 4.5, cap: 6 };
   const ringR = () => R * (ROPE[level] ? ROPE[level].size : 0.62);
+
+  // Fountains: jets on the pool floor that switch on and off. While spraying they push the ball away.
+  let fountains = [], ft = 0;
+  const F_PERIOD = 4.2, F_ON = 0.55; // seconds per cycle, share of the cycle spent spraying
+  function newFountains(count) {
+    const off = Math.random() * Math.PI * 2;
+    fountains = Array.from({ length: count }, (_, i) => ({ a: off + i * Math.PI * 2 / count, phase: i / count, seed: Math.random() * 10 }));
+  }
+  function fountainPos(f) {
+    const fr = R * 0.58;
+    return { x: CX + Math.cos(f.a) * fr, y: CY + Math.sin(f.a) * fr, reach: Math.max(40, (ball ? ball.r : 14) * 3.3) };
+  }
+  function fountainPower(f) {
+    const c = (ft / F_PERIOD + f.phase) % 1;
+    if (c >= F_ON) return 0;
+    const ramp = 0.1, x = Math.min(1, c / ramp, (F_ON - c) / ramp);
+    return x * x * (3 - 2 * x);
+  }
 
   // Level 5 obstacle: wooden pilings standing in a ring around the drain. They never move.
   let pilings = [];
@@ -374,6 +393,8 @@
     if (DUCK_COUNT[level]) newDucks(DUCK_COUNT[level]);
     pilings = [];
     if (PILING_COUNT[level]) newPilings(PILING_COUNT[level]);
+    fountains = [];
+    if (FOUNTAIN_COUNT[level]) newFountains(FOUNTAIN_COUNT[level]);
     if (ROPE[level]) { ring.a = Math.random() * Math.PI * 2; ring.gap = ROPE[level].gap; }
     if (BANNERS[level]) {
       document.getElementById('bannerLevel').textContent = 'Level ' + level;
@@ -427,6 +448,7 @@
   // ---------- physics ----------
   function step(dt) {
     readTilt();
+    ft += dt;
     if (ROPE[level]) ring.a += ring.speed * dt;
     if (DUCK_COUNT[level]) stepDucks(dt);
     const b = ball; if (!b) return;
@@ -454,6 +476,12 @@
         ax += -ny * swirl - nx * pull;
         ay += nx * swirl - ny * pull;
         b.spin += k * dt * 6;
+      }
+      // fountains shove the ball away from their jets while they're spraying
+      for (const f of fountains) {
+        const pw = fountainPower(f); if (!pw) continue;
+        const q = fountainPos(f), fx = b.x - q.x, fy = b.y - q.y, fd = Math.hypot(fx, fy) || 0.001;
+        if (fd < q.reach) { const push = 2000 * pw * (1 - fd / q.reach); ax += fx / fd * push; ay += fy / fd * push; }
       }
       const drag = Math.exp(-1.6 * dt);
       b.vx = (b.vx + ax * dt) * drag;
@@ -670,6 +698,50 @@
     }
   }
 
+  function drawFountains(t) {
+    for (const f of fountains) {
+      const { x, y, reach } = fountainPos(f), pw = fountainPower(f);
+      ctx.save();
+      // nozzle grate on the pool floor
+      ctx.fillStyle = 'rgba(13,59,92,.35)';
+      ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.stroke();
+      if (pw < 0.05) {
+        // resting: a few lazy bubbles so you can see where it is
+        for (let i = 0; i < 3; i++) {
+          const c = (t * 0.7 + i / 3 + f.seed) % 1;
+          ctx.fillStyle = 'rgba(255,255,255,' + (0.6 * (1 - c)).toFixed(3) + ')';
+          ctx.beginPath(); ctx.arc(x + Math.sin(i * 2.1 + f.seed) * 6 * c, y - c * 8, 1.5 + c * 1.5, 0, Math.PI * 2); ctx.fill();
+        }
+      } else {
+        // spraying: churned foam, rings rolling outward, and droplets landing around the jet
+        const foam = ctx.createRadialGradient(x, y, 0, x, y, reach * 0.75);
+        foam.addColorStop(0, 'rgba(255,255,255,' + (0.85 * pw).toFixed(3) + ')');
+        foam.addColorStop(0.45, 'rgba(255,255,255,' + (0.4 * pw).toFixed(3) + ')');
+        foam.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = foam;
+        ctx.beginPath(); ctx.arc(x, y, reach * 0.75, 0, Math.PI * 2); ctx.fill();
+        for (let i = 0; i < 3; i++) {
+          const c = (t * 1.6 + i / 3) % 1;
+          ctx.strokeStyle = 'rgba(255,255,255,' + (0.7 * pw * (1 - c)).toFixed(3) + ')';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(x, y, reach * (0.2 + 0.8 * c) * (0.6 + 0.4 * pw), 0, Math.PI * 2); ctx.stroke();
+        }
+        for (let i = 0; i < 18; i++) {
+          const a = i * 2.399 + f.seed, c = (t * 1.3 + i * 0.37 + f.seed) % 1;
+          const dr = reach * (0.15 + 0.85 * c) * pw;
+          ctx.fillStyle = 'rgba(255,255,255,' + (0.9 * (1 - c) * pw).toFixed(3) + ')';
+          ctx.beginPath(); ctx.arc(x + Math.cos(a) * dr, y + Math.sin(a) * dr, 1.2 + (1 - c) * 1.8, 0, Math.PI * 2); ctx.fill();
+        }
+        // the jet itself, seen from above
+        ctx.fillStyle = 'rgba(255,255,255,' + (0.95 * pw).toFixed(3) + ')';
+        ctx.beginPath(); ctx.arc(x, y, 5 + 4 * pw + Math.sin(t * 20 + f.seed) * 0.8, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
   function drawPilings(t) {
     for (const pl of pilings) {
       const { x, y, r } = pilingPos(pl);
@@ -806,6 +878,7 @@
     if (ROPE[level]) drawRing(wt);
     if (DUCK_COUNT[level]) drawDucks(wt);
     if (pilings.length) drawPilings(wt);
+    if (fountains.length) drawFountains(wt);
     if (ball && state !== 'dropping') drawBall(wt);
     ctx.restore();
     if (ball && state === 'dropping') drawBall(wt); // still in the air, above the clip
