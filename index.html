@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="apple-mobile-web-app-capable" content="yes"></head><body>
+<title>Whirlpool Drop</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap">
+<style>
+  /* Layout: one full-screen canvas pool; HUD floats over it, clear of the safe areas. Single deliberate look. */
+  :root {
+    --deck: #e9e4d8;      /* pool coping stone */
+    --deck-shade: #d6cfbf;
+    --ink: #0d3b5c;       /* deep pool navy */
+    --water: #7fd0f0;
+    --foam: #ffffff;
+    --coral: #ff6b4a;     /* ball + button */
+    --display: "Lilita One", "Arial Rounded MT Bold", system-ui, sans-serif;
+    --body: "Nunito", ui-rounded, system-ui, -apple-system, sans-serif;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; overflow: hidden; background: var(--deck); color: var(--ink);
+    font-family: var(--body); touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #safe { position: fixed; inset: 0; visibility: hidden; pointer-events: none;
+    padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+  #safe > div { width: 100%; height: 100%; }
+  .hud {
+    position: fixed; left: 0; right: 0; top: 0; z-index: 2;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    pointer-events: none;
+  }
+  .brand { font-family: var(--display); font-size: 24px; letter-spacing: .02em; color: var(--ink); }
+  .timer { font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums;
+    background: rgba(13,59,92,.08); padding: 4px 10px; border-radius: 999px; }
+  .hint {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; text-align: center;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+    color: rgba(13,59,92,.6); pointer-events: none;
+  }
+  .overlay {
+    position: fixed; inset: 0; z-index: 3; display: grid; place-items: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: rgba(13,59,92,.18);
+  }
+  .card {
+    width: min(320px, 100%); box-sizing: border-box; text-align: center;
+    background: #fbfaf6; color: var(--ink); border-radius: 22px; padding: 26px 22px 22px;
+    box-shadow: 0 18px 40px rgba(13,59,92,.28); display: grid; gap: 12px;
+  }
+  .card h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 34px; line-height: 1; text-wrap: balance; }
+  .card p { margin: 0; font-size: 15px; line-height: 1.45; color: #3c6680; }
+  .card .big { font-family: var(--display); font-size: 46px; color: var(--coral); font-variant-numeric: tabular-nums; line-height: 1; }
+  button {
+    font: 800 17px var(--body); color: #fff; background: var(--coral); border: 0;
+    border-radius: 999px; padding: 14px 22px; margin-top: 4px; cursor: pointer;
+    box-shadow: 0 4px 0 #d94b2c;
+  }
+  button:active { transform: translateY(2px); box-shadow: 0 2px 0 #d94b2c; }
+  button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .small { font-size: 12px !important; color: #6a8ea3 !important; }
+</style>
+
+<canvas id="c"></canvas>
+<div id="safe"><div id="safeInner"></div></div>
+
+<div class="hud">
+  <div class="brand">Whirlpool</div>
+  <div class="timer" id="timer">0.0 s</div>
+</div>
+<div class="hint" id="hint">Tilt to steer</div>
+
+<div class="overlay" id="startCard">
+  <div class="card">
+    <h1>Whirlpool Drop</h1>
+    <p>A ball is about to land in the pool. Tilt your phone to roll it into the whirlpool's drain.</p>
+    <button id="startBtn" type="button">Drop the ball</button>
+    <p class="small">Hold the phone the way you like before you tap. That angle counts as level.</p>
+  </div>
+</div>
+
+<div class="overlay" id="winCard" hidden>
+  <div class="card">
+    <h1>Down the drain!</h1>
+    <div class="big" id="winTime">0.0 s</div>
+    <p id="bestLine">Best: –</p>
+    <button id="againBtn" type="button">Drop another</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  const timerEl = document.getElementById('timer');
+  const hintEl = document.getElementById('hint');
+  const startCard = document.getElementById('startCard');
+  const winCard = document.getElementById('winCard');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- sizing ----------
+  let W = 0, H = 0, DPR = 1, pool = null, CX = 0, CY = 0, R = 0, HOLE = 0;
+  const wtex = document.createElement('canvas');
+  const wctx = wtex.getContext('2d');
+  let img = null, CELL = 4, TW = 0, TH = 0;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    const s = document.getElementById('safe');
+    const cs = getComputedStyle(s);
+    const st = parseFloat(cs.paddingTop) || 0, sb = parseFloat(cs.paddingBottom) || 0;
+    const sl = parseFloat(cs.paddingLeft) || 0, sr = parseFloat(cs.paddingRight) || 0;
+    const m = 14;
+    pool = { x: Math.max(m, sl + 8), y: st + 52, w: 0, h: 0, r: 26 };
+    pool.w = W - pool.x - Math.max(m, sr + 8);
+    pool.h = H - pool.y - (sb + 38);
+    CX = pool.x + pool.w / 2; CY = pool.y + pool.h / 2;
+    R = Math.min(pool.w, pool.h) * 0.36;
+    HOLE = Math.max(16, R * 0.16);
+    TW = Math.ceil(pool.w / CELL); TH = Math.ceil(pool.h / CELL);
+    wtex.width = TW; wtex.height = TH;
+    img = wctx.createImageData(TW, TH);
+    if (ball) clampBall();
+  }
+
+  // ---------- input: tilt, drag fallback, keys ----------
+  const tilt = { x: 0, y: 0 };         // degrees, after calibration
+  let raw = null, base = null, gotOrientation = false, mode = 'tilt';
+  const drag = { on: false, ox: 0, oy: 0, x: 0, y: 0 };
+  const keys = {};
+
+  function screenAngle() {
+    if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
+    return typeof window.orientation === 'number' ? window.orientation : 0;
+  }
+  function onOrient(e) {
+    if (e.beta == null || e.gamma == null) return;
+    gotOrientation = true;
+    const a = -screenAngle() * Math.PI / 180;
+    const x = e.gamma, y = e.beta;
+    raw = { x: x * Math.cos(a) - y * Math.sin(a), y: x * Math.sin(a) + y * Math.cos(a) };
+    if (!base) base = { ...raw };
+  }
+  async function enableTilt() {
+    try {
+      const DOE = window.DeviceOrientationEvent;
+      if (DOE && typeof DOE.requestPermission === 'function') {
+        const res = await Promise.race([DOE.requestPermission(), new Promise(r => setTimeout(() => r('timeout'), 4000))]);
+        if (res !== 'granted') return false;
+      }
+      window.addEventListener('deviceorientation', onOrient);
+      return true;
+    } catch (_) { return false; }
+  }
+  function useDragMode() {
+    mode = 'drag';
+    hintEl.textContent = matchMedia('(pointer: coarse)').matches ? 'Drag your finger to tilt the pool' : 'Drag or use arrow keys to tilt';
+  }
+
+  cv.addEventListener('pointerdown', e => { drag.on = true; drag.ox = e.clientX; drag.oy = e.clientY; drag.x = drag.y = 0; });
+  addEventListener('pointermove', e => { if (drag.on) { drag.x = e.clientX - drag.ox; drag.y = e.clientY - drag.oy; } });
+  addEventListener('pointerup', () => { drag.on = false; drag.x = drag.y = 0; });
+  addEventListener('pointercancel', () => { drag.on = false; drag.x = drag.y = 0; });
+  addEventListener('keydown', e => { keys[e.key] = true; });
+  addEventListener('keyup', e => { keys[e.key] = false; });
+
+  function readTilt() {
+    let x = 0, y = 0;
+    if (raw && base) { x = raw.x - base.x; y = raw.y - base.y; }
+    if (drag.on) { x += drag.x / 3; y += drag.y / 3; }
+    if (keys.ArrowLeft) x -= 20; if (keys.ArrowRight) x += 20;
+    if (keys.ArrowUp) y -= 20; if (keys.ArrowDown) y += 20;
+    const lim = 35;
+    x = Math.max(-lim, Math.min(lim, x)); y = Math.max(-lim, Math.min(lim, y));
+    tilt.x += (x - tilt.x) * 0.25; tilt.y += (y - tilt.y) * 0.25;
+  }
+
+  // ---------- game state ----------
+  let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, best = null;
+  try { const b = parseFloat(localStorage.getItem('whirlpool-best')); if (b > 0) best = b; } catch (_) {}
+
+  function newBall() {
+    const br = Math.max(13, Math.min(pool.w, pool.h) * 0.04);
+    // land somewhere well outside the whirlpool
+    let x, y, tries = 0;
+    do {
+      x = pool.x + br + 10 + Math.random() * (pool.w - 2 * br - 20);
+      y = pool.y + br + 10 + Math.random() * (pool.h - 2 * br - 20);
+      tries++;
+    } while (Math.hypot(x - CX, y - CY) < R * 1.25 && tries < 60);
+    ball = { x, y, vx: 0, vy: 0, r: br, z: 1, spin: 0, sink: 0, sa: 0, sr: 0 };
+  }
+  function clampBall() {
+    const b = ball;
+    b.x = Math.max(pool.x + b.r, Math.min(pool.x + pool.w - b.r, b.x));
+    b.y = Math.max(pool.y + b.r, Math.min(pool.y + pool.h - b.r, b.y));
+  }
+  function ripple(x, y, max, life, alpha) { ripples.push({ x, y, max, life, alpha, age: 0 }); }
+
+  function start() {
+    startCard.hidden = true; winCard.hidden = true;
+    base = raw ? { ...raw } : null;
+    newBall(); ripples = [];
+    state = 'dropping'; elapsed = 0; t0 = performance.now();
+  }
+
+  document.getElementById('startBtn').addEventListener('click', async () => {
+    const ok = await enableTilt();
+    if (!ok) useDragMode();
+    else setTimeout(() => { if (!gotOrientation) useDragMode(); }, 1200);
+    start();
+  });
+  document.getElementById('againBtn').addEventListener('click', () => { base = null; start(); });
+
+  // ---------- physics ----------
+  function step(dt) {
+    readTilt();
+    const b = ball; if (!b) return;
+    if (state === 'dropping') {
+      b.z -= dt / 0.65;
+      if (b.z <= 0) {
+        b.z = 0; state = 'playing'; t0 = performance.now();
+        ripple(b.x, b.y, b.r * 5, 1.4, 0.9); ripple(b.x, b.y, b.r * 3, 1.0, 0.7);
+        ripple(b.x, b.y, b.r * 7.5, 2.0, 0.5);
+      }
+      return;
+    }
+    if (state === 'playing') {
+      elapsed = (performance.now() - t0) / 1000;
+      const g = 1100; // px/s² at full tilt
+      let ax = Math.sin(tilt.x * Math.PI / 180) * g;
+      let ay = Math.sin(tilt.y * Math.PI / 180) * g;
+      // whirlpool currents
+      const dx = b.x - CX, dy = b.y - CY, d = Math.hypot(dx, dy) || 0.001;
+      if (d < R * 1.15) {
+        const k = 1 - d / (R * 1.15);
+        const nx = dx / d, ny = dy / d;
+        const swirl = 260 * k;              // counter-clockwise current
+        const pull = 170 * k * k + 40 * k;  // gentle drain pull
+        ax += -ny * swirl - nx * pull;
+        ay += nx * swirl - ny * pull;
+        b.spin += k * dt * 6;
+      }
+      const drag = Math.exp(-1.6 * dt);
+      b.vx = (b.vx + ax * dt) * drag;
+      b.vy = (b.vy + ay * dt) * drag;
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      b.spin += (b.vx * 0.6 - b.vy * 0.2) * dt / b.r * 0.25;
+      // walls
+      const L = pool.x + b.r, Rt = pool.x + pool.w - b.r, T = pool.y + b.r, B = pool.y + pool.h - b.r;
+      if (b.x < L) { if (b.vx < -120) ripple(L - b.r, b.y, b.r * 2.5, 0.8, 0.6); b.x = L; b.vx = -b.vx * 0.45; }
+      if (b.x > Rt) { if (b.vx > 120) ripple(Rt + b.r, b.y, b.r * 2.5, 0.8, 0.6); b.x = Rt; b.vx = -b.vx * 0.45; }
+      if (b.y < T) { if (b.vy < -120) ripple(b.x, T - b.r, b.r * 2.5, 0.8, 0.6); b.y = T; b.vy = -b.vy * 0.45; }
+      if (b.y > B) { if (b.vy > 120) ripple(b.x, B + b.r, b.r * 2.5, 0.8, 0.6); b.y = B; b.vy = -b.vy * 0.45; }
+      // wake
+      const sp = Math.hypot(b.vx, b.vy);
+      b.wake = (b.wake || 0) + sp * dt;
+      if (b.wake > b.r * 2.2) { b.wake = 0; ripple(b.x, b.y, b.r * 2.6, 1.1, Math.min(0.45, sp / 500)); }
+      // captured?
+      if (d < HOLE * 0.85) {
+        state = 'sinking'; b.sa = Math.atan2(dy, dx); b.sr = d; b.sink = 0;
+        ripple(CX, CY, HOLE * 3, 1.2, 0.7);
+      }
+    } else if (state === 'sinking') {
+      b.sink += dt / 1.3;
+      b.sa += dt * (5 + b.sink * 10);
+      b.sr = Math.max(0, b.sr * (1 - dt * 3));
+      b.x = CX + Math.cos(b.sa) * b.sr; b.y = CY + Math.sin(b.sa) * b.sr;
+      b.spin += dt * 12;
+      if (b.sink >= 1) { state = 'won'; showWin(); }
+    }
+  }
+
+  function showWin() {
+    const t = elapsed;
+    document.getElementById('winTime').textContent = t.toFixed(1) + ' s';
+    let line;
+    if (best == null || t < best) {
+      line = best == null ? 'First drain. Can you beat it?' : 'New best! Old best was ' + best.toFixed(1) + ' s';
+      best = t;
+      try { localStorage.setItem('whirlpool-best', String(t)); } catch (_) {}
+    } else line = 'Best: ' + best.toFixed(1) + ' s';
+    document.getElementById('bestLine').textContent = line;
+    winCard.hidden = false;
+    document.getElementById('againBtn').focus({ preventScroll: true });
+  }
+
+  // ---------- rendering ----------
+  function renderWater(t) {
+    const d = img.data;
+    const twistAmt = 2.6, rd = R * 0.55;
+    let i = 0;
+    for (let ty = 0; ty < TH; ty++) {
+      const wy = pool.y + ty * CELL + CELL / 2 - CY;
+      for (let tx = 0; tx < TW; tx++) {
+        const wx = pool.x + tx * CELL + CELL / 2 - CX;
+        const r = Math.sqrt(wx * wx + wy * wy);
+        const depth = Math.exp(-r / rd);
+        const tw = twistAmt * depth * 3 + t * 1.4 * Math.exp(-r / R);
+        const cs = Math.cos(tw), sn = Math.sin(tw);
+        const u = wx * cs - wy * sn, v = wx * sn + wy * cs;
+        const n = Math.sin(u * 0.042 + t * 0.9) + Math.sin(v * 0.047 - t * 0.7)
+                + Math.sin((u * 0.6 + v * 0.8) * 0.033 + t * 1.1)
+                + Math.sin((-u * 0.7 + v * 0.5) * 0.039 - t * 0.55);
+        let c = 1 - Math.abs(Math.sin(n * 1.25));
+        c = c * c; c = c * c * c;                      // sharp caustic lines
+        const hi = c * (1 - depth * 0.85) * 0.75;
+        const dd = Math.min(1, depth * 1.15);
+        // light pool blue -> deeper teal toward the vortex
+        let rC = 128 - 95 * dd, gC = 214 - 100 * dd, bC = 243 - 70 * dd;
+        // a soft shimmer band
+        const sh = 0.06 * Math.sin(u * 0.012 + v * 0.01 + t * 0.4);
+        rC += 255 * sh; gC += 255 * sh; bC += 255 * sh;
+        d[i]     = rC + (255 - rC) * hi;
+        d[i + 1] = gC + (255 - gC) * hi;
+        d[i + 2] = bC + (255 - bC) * hi;
+        d[i + 3] = 255;
+        i += 4;
+      }
+    }
+    wctx.putImageData(img, 0, 0);
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+
+  function drawDeck() {
+    ctx.fillStyle = '#e9e4d8'; ctx.fillRect(0, 0, W, H);
+    // coping stones
+    ctx.strokeStyle = 'rgba(160,148,124,.25)'; ctx.lineWidth = 1;
+    const step = 46;
+    for (let x = step; x < W; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = step; y < H; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    // mosaic tile band at the waterline
+    const p = pool, band = 8;
+    roundRect(p.x - band, p.y - band, p.w + band * 2, p.h + band * 2, p.r + band);
+    ctx.fillStyle = '#2e86b5'; ctx.fill();
+    ctx.save(); ctx.clip();
+    const ts = 8;
+    for (let y = p.y - band; y < p.y + p.h + band; y += ts)
+      for (let x = p.x - band; x < p.x + p.w + band; x += ts) {
+        const h = ((x * 7 + y * 13) / ts) % 3;
+        ctx.fillStyle = h < 1 ? '#3a9acb' : h < 2 ? '#2a7fae' : '#56b4dd';
+        ctx.fillRect(x + 0.6, y + 0.6, ts - 1.2, ts - 1.2);
+      }
+    ctx.restore();
+  }
+
+  function drawVortex(t) {
+    // spiral foam arms
+    const arms = 5;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let a = 0; a < arms; a++) {
+      const off = a * Math.PI * 2 / arms;
+      let px = null, py = null;
+      for (let s = 0; s <= 1; s += 0.02) {
+        const r = HOLE * 0.9 + s * (R - HOLE * 0.9);
+        const ang = off - Math.log(r / HOLE) * 1.9 - t * 1.6;
+        const x = CX + Math.cos(ang) * r, y = CY + Math.sin(ang) * r;
+        if (px != null) {
+          const alpha = (1 - s) * 0.55 * Math.min(1, s * 6);
+          ctx.strokeStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+          ctx.lineWidth = 1 + (1 - s) * 3.2;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
+        }
+        px = x; py = y;
+      }
+    }
+    ctx.restore();
+    // the drain hole
+    const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, HOLE * 2.4);
+    g.addColorStop(0, 'rgba(4,22,40,1)');
+    g.addColorStop(0.32, 'rgba(8,40,66,.95)');
+    g.addColorStop(0.55, 'rgba(18,80,120,.55)');
+    g.addColorStop(1, 'rgba(30,110,160,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(CX, CY, HOLE * 2.4, 0, Math.PI * 2); ctx.fill();
+    // foamy lip spinning at the rim
+    ctx.save(); ctx.translate(CX, CY); ctx.rotate(-t * 3);
+    for (let i = 0; i < 14; i++) {
+      const a = i / 14 * Math.PI * 2;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.25 + 0.25 * Math.sin(i * 2.3 + t * 4)).toFixed(3) + ')';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, HOLE * 0.95, a, a + 0.22); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawRipples(dt) {
+    ctx.save();
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const r = ripples[i]; r.age += dt;
+      const k = r.age / r.life;
+      if (k >= 1) { ripples.splice(i, 1); continue; }
+      const rad = r.max * (0.15 + 0.85 * Math.sqrt(k));
+      ctx.strokeStyle = 'rgba(255,255,255,' + (r.alpha * (1 - k)).toFixed(3) + ')';
+      ctx.lineWidth = 2 * (1 - k) + 0.5;
+      ctx.beginPath(); ctx.arc(r.x, r.y, rad, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  const WEDGES = ['#ff6b4a', '#ffffff', '#ffc93c', '#ffffff', '#2fb5a3', '#ffffff'];
+  function drawBall(t) {
+    const b = ball; if (!b) return;
+    const bob = state === 'playing' ? 1 + 0.03 * Math.sin(t * 3.2) : 1;
+    let scale = (1 + b.z * 1.3) * bob, alpha = 1;
+    if (state === 'sinking' || state === 'won') { const s = Math.min(1, b.sink); scale *= 1 - s * 0.85; alpha = 1 - s * 0.9; }
+    const r = b.r * scale;
+    // shadow on the water
+    const so = 4 + b.z * 26;
+    ctx.save();
+    ctx.globalAlpha = (0.28 - b.z * 0.12) * alpha;
+    ctx.fillStyle = '#0d3b5c';
+    ctx.beginPath(); ctx.ellipse(b.x + so * 0.6, b.y + so, b.r * (1 + b.z * 0.4), b.r * 0.8 * (1 + b.z * 0.4), 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    const by = b.y - b.z * 60;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(b.x, by);
+    ctx.save();
+    ctx.rotate(b.spin);
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = WEDGES[i];
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, i * Math.PI / 3, (i + 1) * Math.PI / 3); ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.22, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // shading + gloss
+    const sg = ctx.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r);
+    sg.addColorStop(0, 'rgba(255,255,255,.55)');
+    sg.addColorStop(0.45, 'rgba(255,255,255,0)');
+    sg.addColorStop(1, 'rgba(13,59,92,.35)');
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // waterline ring around a floating ball
+    if (b.z === 0 && state === 'playing') {
+      ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(b.x, b.y, r * 1.12, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // ---------- loop ----------
+  let last = performance.now(), wt = 0;
+  function frame(now) {
+    const dt = Math.min(0.033, (now - last) / 1000); last = now;
+    wt += reduceMotion ? dt * 0.3 : dt;
+    step(dt);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    drawDeck();
+    ctx.save();
+    roundRect(pool.x, pool.y, pool.w, pool.h, pool.r); ctx.clip();
+    renderWater(wt);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(wtex, pool.x, pool.y, TW * CELL, TH * CELL);
+    // inner edge shade
+    ctx.strokeStyle = 'rgba(13,59,92,.25)'; ctx.lineWidth = 10;
+    roundRect(pool.x, pool.y, pool.w, pool.h, pool.r); ctx.stroke();
+    drawVortex(wt);
+    drawRipples(dt);
+    if (ball && state !== 'dropping') drawBall(wt);
+    ctx.restore();
+    if (ball && state === 'dropping') drawBall(wt); // still in the air, above the clip
+    timerEl.textContent = (state === 'playing' ? (performance.now() - t0) / 1000 : elapsed).toFixed(1) + ' s';
+    requestAnimationFrame(frame);
+  }
+
+  addEventListener('resize', resize);
+  addEventListener('orientationchange', () => setTimeout(resize, 200));
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
