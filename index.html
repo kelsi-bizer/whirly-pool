@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="apple-mobile-web-app-capable" content="yes"></head><body>
-<title>Whirlpool Drop</title>
+<title>Whirly Pool</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -89,7 +89,7 @@
 <div id="safe"><div id="safeInner"></div></div>
 
 <div class="hud">
-  <div class="brand">Whirlpool</div>
+  <div class="brand">Whirly Pool</div>
   <div class="hud-right">
     <div class="level" id="levelChip">Level 1</div>
     <div class="timer" id="timer">0.0 s</div>
@@ -100,7 +100,7 @@
 
 <div class="overlay" id="startCard">
   <div class="card">
-    <h1>Whirlpool Drop</h1>
+    <h1>Whirly Pool</h1>
     <p>A ball is about to land in the pool. Tilt your phone to roll it into the whirlpool's drain.</p>
     <button id="startBtn" type="button">Drop the ball</button>
     <p class="small">Hold the phone the way you like before you tap. That angle counts as level.</p>
@@ -210,7 +210,7 @@
   const LAST_LEVEL = 3;
   // (the lane-rope level keeps its old storage key from when it was level 2)
   const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2' };
-  const BANNERS = { 2: 'Bounce past the rubber ducks', 3: 'Find the gap in the lane rope' };
+  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope' };
   const bests = { 1: null, 2: null, 3: null };
   for (const lv of [1, 2, 3]) {
     try { const b = parseFloat(localStorage.getItem(BEST_KEYS[lv])); if (b > 0) bests[lv] = b; } catch (_) {}
@@ -226,27 +226,38 @@
     const r = ball.r * 1.3, off = Math.random() * Math.PI * 2;
     ducks = [0, 1, 2].map(i => {
       const a = off + i * Math.PI * 2 / 3, d = R * (0.65 + 0.12 * i);
-      return { x: CX + Math.cos(a) * d, y: CY + Math.sin(a) * d, vx: 0, vy: 0, r, dir: a + Math.PI / 2, bobP: i * 2.1 };
+      return { x: CX + Math.cos(a) * d, y: CY + Math.sin(a) * d, vx: 0, vy: 0, r, dir: a + Math.PI / 2, bobP: i * 2.1, wa: Math.random() * Math.PI * 2, cool: 0 };
     });
   }
   function stepDucks(dt) {
-    const drag = Math.exp(-1.6 * dt), keepOut = R * 0.5;
+    const drag = Math.exp(-0.9 * dt), flingR = R * 0.6, floor = HOLE * 1.7;
     for (const k of ducks) {
       const dx = k.x - CX, dy = k.y - CY, d = Math.hypot(dx, dy) || 0.001, nx = dx / d, ny = dy / d;
-      // same swirl the ball feels, with a little left even far out so ducks keep drifting
-      const kk = Math.max(0.2, 1 - d / (R * 1.15));
-      let ax = -ny * 260 * kk, ay = nx * 260 * kk;
-      // ducks float too high to be sucked under: pushed back out near the drain, gently held near the vortex
-      if (d < keepOut) { const p = 900 * (keepOut - d) / keepOut; ax += nx * p; ay += ny * p; }
-      else if (d > R * 0.95) { ax -= nx * 70; ay -= ny * 70; }
+      // the current: swirls hard near the drain, and draws ducks in from anywhere in the pool
+      const kk = Math.max(0, 1 - d / (R * 1.3));
+      const swirl = 420 * kk * kk + 90 * kk;
+      const pull = 320 * kk * kk + 90 * kk + 90;
+      let ax = -ny * swirl - nx * pull, ay = nx * swirl - ny * pull;
+      // each duck wanders with its own slowly turning nudge
+      k.wa += (Math.random() - 0.5) * 3 * dt;
+      ax += Math.cos(k.wa) * 55; ay += Math.sin(k.wa) * 55;
+      // too buoyant to go under: the whirlpool spits it back out across the pool
+      k.cool -= dt;
+      if (d < flingR && k.cool <= 0) {
+        const sp = 380 + Math.random() * 240, tang = 0.5 + Math.random() * 0.6;
+        k.vx = (nx - ny * tang) * sp; k.vy = (ny + nx * tang) * sp;
+        k.cool = 0.7;
+        ripple(k.x, k.y, k.r * 3, 1.0, 0.7);
+      }
+      if (d < floor) { k.x = CX + nx * floor; k.y = CY + ny * floor; }
       k.vx = (k.vx + ax * dt) * drag; k.vy = (k.vy + ay * dt) * drag;
       k.x += k.vx * dt; k.y += k.vy * dt;
       // pool walls
       const L = pool.x + k.r, Rt = pool.x + pool.w - k.r, T = pool.y + k.r, B = pool.y + pool.h - k.r;
-      if (k.x < L) { k.x = L; k.vx = Math.abs(k.vx) * 0.5; }
-      if (k.x > Rt) { k.x = Rt; k.vx = -Math.abs(k.vx) * 0.5; }
-      if (k.y < T) { k.y = T; k.vy = Math.abs(k.vy) * 0.5; }
-      if (k.y > B) { k.y = B; k.vy = -Math.abs(k.vy) * 0.5; }
+      if (k.x < L) { k.x = L; k.vx = Math.abs(k.vx) * 0.8; }
+      if (k.x > Rt) { k.x = Rt; k.vx = -Math.abs(k.vx) * 0.8; }
+      if (k.y < T) { k.y = T; k.vy = Math.abs(k.vy) * 0.8; }
+      if (k.y > B) { k.y = B; k.vy = -Math.abs(k.vy) * 0.8; }
       // face the way it's drifting
       const sp = Math.hypot(k.vx, k.vy);
       if (sp > 8) {
@@ -439,6 +450,7 @@
   function renderWater(t) {
     const d = img.data;
     const twistAmt = 2.6, rd = R * 0.55;
+    const SWIRL_T = 3.5, pa = (t / SWIRL_T) % 1;
     let i = 0;
     for (let ty = 0; ty < TH; ty++) {
       const wy = pool.y + ty * CELL + CELL / 2 - CY;
@@ -446,20 +458,27 @@
         const wx = pool.x + tx * CELL + CELL / 2 - CX;
         const r = Math.sqrt(wx * wx + wy * wy);
         const depth = Math.exp(-r / rd);
-        const tw = twistAmt * depth * 3 + t * 1.4 * Math.exp(-r / R);
-        const cs = Math.cos(tw), sn = Math.sin(tw);
-        const u = wx * cs - wy * sn, v = wx * sn + wy * cs;
-        const n = Math.sin(u * 0.042 + t * 0.9) + Math.sin(v * 0.047 - t * 0.7)
-                + Math.sin((u * 0.6 + v * 0.8) * 0.033 + t * 1.1)
-                + Math.sin((-u * 0.7 + v * 0.5) * 0.039 - t * 0.55);
-        let c = 1 - Math.abs(Math.sin(n * 1.25));
-        c = c * c; c = c * c * c;                      // sharp caustic lines
+        // Two copies of the pattern, each swirled for a few seconds then reset, cross-faded so the
+        // swirl keeps turning forever without winding itself up into tight rings.
+        const spin = 1.4 * Math.exp(-r / R), base = twistAmt * depth * 3;
+        let c = 0, sh = 0;
+        for (let k = 0; k < 2; k++) {
+          const ph = (pa + k * 0.5) % 1, wgt = 1 - Math.abs(2 * ph - 1);
+          const tw = base + (ph - 0.5) * SWIRL_T * spin;
+          const cs = Math.cos(tw), sn = Math.sin(tw);
+          const u = wx * cs - wy * sn, v = wx * sn + wy * cs;
+          const n = Math.sin(u * 0.042 + t * 0.9) + Math.sin(v * 0.047 - t * 0.7)
+                  + Math.sin((u * 0.6 + v * 0.8) * 0.033 + t * 1.1)
+                  + Math.sin((-u * 0.7 + v * 0.5) * 0.039 - t * 0.55);
+          let ck = 1 - Math.abs(Math.sin(n * 1.25));
+          ck = ck * ck; ck = ck * ck * ck;               // sharp caustic lines
+          c += ck * wgt;
+          sh += 0.06 * Math.sin(u * 0.012 + v * 0.01 + t * 0.4) * wgt;   // a soft shimmer band
+        }
         const hi = c * (1 - depth * 0.85) * 0.75;
         const dd = Math.min(1, depth * 1.15);
         // light pool blue -> deeper teal toward the vortex
         let rC = 128 - 95 * dd, gC = 214 - 100 * dd, bC = 243 - 70 * dd;
-        // a soft shimmer band
-        const sh = 0.06 * Math.sin(u * 0.012 + v * 0.01 + t * 0.4);
         rC += 255 * sh; gC += 255 * sh; bC += 255 * sh;
         d[i]     = rC + (255 - rC) * hi;
         d[i + 1] = gC + (255 - gC) * hi;
