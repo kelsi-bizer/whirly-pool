@@ -208,7 +208,7 @@
   // ---------- game state ----------
   let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, level = 1;
   const LAST_LEVEL = 9;
-  const FOUNTAIN_COUNT = { 9: 3 }; // levels with pulsing fountains around the whirlpool
+  const FOUNTAIN_COUNT = { 9: 5 }; // levels with pulsing fountains around the whirlpool
   const PILING_COUNT = { 5: 4, 6: 4, 7: 4 }; // levels with wooden pilings around the drain
   // levels with a lane rope: its size (share of the whirlpool radius) and gap width (radians)
   const ROPE = { 3: { size: 0.62, gap: 0.95 }, 6: { size: 0.9, gap: 0.72 } };
@@ -227,14 +227,14 @@
 
   // Fountains: jets on the pool floor that switch on and off. While spraying they push the ball away.
   let fountains = [], ft = 0;
-  const F_PERIOD = 4.2, F_ON = 0.55; // seconds per cycle, share of the cycle spent spraying
+  const F_PERIOD = 4.5, F_ON = 0.85; // seconds per cycle, share of the cycle spent spraying
   function newFountains(count) {
     const off = Math.random() * Math.PI * 2;
-    fountains = Array.from({ length: count }, (_, i) => ({ a: off + i * Math.PI * 2 / count, phase: i / count, seed: Math.random() * 10 }));
+    fountains = Array.from({ length: count }, (_, i) => ({ a: off + i * Math.PI * 2 / count, phase: ((i * 2) % count) / count, seed: Math.random() * 10 }));
   }
   function fountainPos(f) {
-    const fr = R * 0.58;
-    return { x: CX + Math.cos(f.a) * fr, y: CY + Math.sin(f.a) * fr, reach: Math.max(40, (ball ? ball.r : 14) * 3.3) };
+    const fr = R * 0.56;
+    return { x: CX + Math.cos(f.a) * fr, y: CY + Math.sin(f.a) * fr, reach: Math.max(56, (ball ? ball.r : 14) * 4.7) };
   }
   function fountainPower(f) {
     const c = (ft / F_PERIOD + f.phase) % 1;
@@ -481,7 +481,12 @@
       for (const f of fountains) {
         const pw = fountainPower(f); if (!pw) continue;
         const q = fountainPos(f), fx = b.x - q.x, fy = b.y - q.y, fd = Math.hypot(fx, fy) || 0.001;
-        if (fd < q.reach) { const push = 2000 * pw * (1 - fd / q.reach); ax += fx / fd * push; ay += fy / fd * push; }
+        if (fd < q.reach) {
+          // the spray rolls outward from the drain, so neighbouring fountains add up into a wall instead of cancelling out
+          const push = 3400 * pw * (1 - fd / q.reach);
+          const ox = (b.x - CX) / (d || 1), oy = (b.y - CY) / (d || 1);
+          ax += (ox * 0.75 + fx / fd * 0.25) * push; ay += (oy * 0.75 + fy / fd * 0.25) * push;
+        }
       }
       const drag = Math.exp(-1.6 * dt);
       b.vx = (b.vx + ax * dt) * drag;
