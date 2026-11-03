@@ -30,7 +30,7 @@
     padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
   #safe > div { width: 100%; height: 100%; }
   .hud {
-    position: fixed; left: 0; right: 0; top: 0; z-index: 2;
+    position: fixed; left: 0; right: 0; top: 0; z-index: 4;
     padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
@@ -43,6 +43,18 @@
   .hud-right { display: flex; align-items: center; gap: 8px; }
   .level { font-weight: 800; font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
     color: #fff; background: var(--ink); padding: 6px 10px; border-radius: 999px; }
+  /* the level badge is a real dropdown: a see-through native select laid over the badge */
+  .level-pick { position: relative; pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .level-pick::after { content: ""; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #fff; }
+  .level-pick select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 16px; cursor: pointer; }
+  .level-pick:focus-within { outline: 3px solid var(--coral); outline-offset: 2px; }
+  .card { grid-template-columns: minmax(0, 1fr); }
+  .start-level { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 15px; color: var(--ink); white-space: nowrap; min-width: 0; }
+  .start-level select {
+    font: 800 16px var(--body); color: var(--ink); background: #eef6fa; border: 2px solid rgba(13,59,92,.18);
+    border-radius: 12px; padding: 8px 10px; flex: 1; min-width: 0; width: 100%;
+  }
+  .start-level select:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
   .banner {
     position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 70px); z-index: 2;
     transform: translateX(-50%); max-width: calc(100% - 32px); box-sizing: border-box; text-align: center;
@@ -91,7 +103,7 @@
 <div class="hud">
   <div class="brand">Whirly Pool</div>
   <div class="hud-right">
-    <div class="level" id="levelChip">Level 1</div>
+    <label class="level level-pick"><span id="levelChip">Level 1</span><select id="levelSelect" aria-label="Jump to level"></select></label>
     <div class="timer" id="timer">0.0 s</div>
   </div>
 </div>
@@ -102,6 +114,7 @@
   <div class="card">
     <h1>Whirly Pool</h1>
     <p>A ball is about to land in the pool. Tilt your phone to roll it into the whirlpool's drain.</p>
+    <label class="start-level" for="startLevel">Start at <select id="startLevel"></select></label>
     <button id="startBtn" type="button">Drop the ball</button>
     <p class="small">Hold the phone the way you like before you tap. That angle counts as level.</p>
   </div>
@@ -395,6 +408,7 @@
     newBall(); ripples = [];
     state = 'dropping'; elapsed = 0; t0 = performance.now();
     document.getElementById('levelChip').textContent = 'Level ' + level;
+    levelSelectEl.value = String(level);
     const banner = document.getElementById('banner');
     banner.hidden = true;
     clearTimeout(bannerTimer);
@@ -414,7 +428,32 @@
   }
   let bannerTimer = 0;
 
+  // level picker: on the start screen, and on the level badge at any time
+  const LEVEL_NAMES = { 1: 'Open pool', 2: '3 ducks', 3: 'Lane rope', 4: '5 ducks', 5: 'Pilings', 6: 'Rope + pilings',
+    7: 'Ducks + pilings', 8: '10 ducks', 9: 'Fountains', 10: 'Fountains + ducks' };
+  const startLevelEl = document.getElementById('startLevel'), levelSelectEl = document.getElementById('levelSelect');
+  for (let lv = 1; lv <= LAST_LEVEL; lv++) {
+    const label = 'Level ' + lv + (LEVEL_NAMES[lv] ? ' · ' + LEVEL_NAMES[lv] : '');
+    startLevelEl.add(new Option(label, String(lv)));
+    levelSelectEl.add(new Option(label, String(lv)));
+  }
+  levelSelectEl.addEventListener('change', () => {
+    const v = parseInt(levelSelectEl.value, 10);
+    levelSelectEl.blur();
+    if (!startCard.hidden) {           // still on the start screen: just preselect it
+      startLevelEl.value = String(v);
+      document.getElementById('levelChip').textContent = 'Level ' + v;
+      return;
+    }
+    level = v; base = null; start();
+  });
+  startLevelEl.addEventListener('change', () => {
+    levelSelectEl.value = startLevelEl.value;
+    document.getElementById('levelChip').textContent = 'Level ' + startLevelEl.value;
+  });
+
   document.getElementById('startBtn').addEventListener('click', async () => {
+    level = parseInt(startLevelEl.value, 10) || 1;
     const ok = await enableTilt();
     if (!ok) useDragMode();
     else setTimeout(() => { if (!gotOrientation) useDragMode(); }, 1200);
