@@ -207,19 +207,21 @@
 
   // ---------- game state ----------
   let ball = null, ripples = [], state = 'idle', t0 = 0, elapsed = 0, level = 1;
-  const LAST_LEVEL = 5;
-  const PILING_COUNT = { 5: 4 }; // levels with wooden pilings around the drain
+  const LAST_LEVEL = 6;
+  const PILING_COUNT = { 5: 4, 6: 4 }; // levels with wooden pilings around the drain
+  // levels with a lane rope: its size (share of the whirlpool radius) and gap width (radians)
+  const ROPE = { 3: { size: 0.62, gap: 0.95 }, 6: { size: 0.9, gap: 0.72 } };
   const DUCK_COUNT = { 2: 3, 4: 5 }; // levels with rubber ducks, and how many
   // (the lane-rope level keeps its old storage key from when it was level 2)
-  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5' };
-  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings' };
-  const bests = { 1: null, 2: null, 3: null, 4: null, 5: null };
-  for (const lv of [1, 2, 3, 4, 5]) {
+  const BEST_KEYS = { 1: 'whirlpool-best', 2: 'whirlpool-best-ducks', 3: 'whirlpool-best-2', 4: 'whirlpool-best-4', 5: 'whirlpool-best-5', 6: 'whirlpool-best-6' };
+  const BANNERS = { 2: 'Watch out for flying ducks', 3: 'Find the gap in the lane rope', 4: 'Five ducks this time', 5: 'Steer between the pilings', 6: 'Through the rope, then past the pilings' };
+  const bests = { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
+  for (const lv of [1, 2, 3, 4, 5, 6]) {
     try { const b = parseFloat(localStorage.getItem(BEST_KEYS[lv])); if (b > 0) bests[lv] = b; } catch (_) {}
   }
   // Level 3 obstacle: a floating lane rope ringed around the whirlpool, with one gap that drifts around.
   const ring = { a: 0, speed: -0.55, gap: 0.95, th: 4.5, cap: 6 };
-  const ringR = () => R * 0.62;
+  const ringR = () => R * (ROPE[level] ? ROPE[level].size : 0.62);
 
   // Level 5 obstacle: wooden pilings standing in a ring around the drain. They never move.
   let pilings = [];
@@ -228,7 +230,7 @@
     pilings = Array.from({ length: count }, (_, i) => ({ a: off + i * Math.PI * 2 / count, seed: Math.random() * 10 }));
   }
   function pilingPos(pl) {
-    const pr = R * 0.55;
+    const pr = R * 0.4;
     return { x: CX + Math.cos(pl.a) * pr, y: CY + Math.sin(pl.a) * pr, r: Math.max(15, ball ? ball.r * 1.25 : 18) };
   }
   function collidePilings(b) {
@@ -333,7 +335,7 @@
     if (DUCK_COUNT[level]) newDucks(DUCK_COUNT[level]);
     pilings = [];
     if (PILING_COUNT[level]) newPilings(PILING_COUNT[level]);
-    if (level === 3) ring.a = Math.random() * Math.PI * 2;
+    if (ROPE[level]) { ring.a = Math.random() * Math.PI * 2; ring.gap = ROPE[level].gap; }
     if (BANNERS[level]) {
       document.getElementById('bannerLevel').textContent = 'Level ' + level;
       document.getElementById('bannerText').textContent = BANNERS[level];
@@ -386,7 +388,7 @@
   // ---------- physics ----------
   function step(dt) {
     readTilt();
-    if (level === 3) ring.a += ring.speed * dt;
+    if (ROPE[level]) ring.a += ring.speed * dt;
     if (DUCK_COUNT[level]) stepDucks(dt);
     const b = ball; if (!b) return;
     if (state === 'dropping') {
@@ -425,7 +427,7 @@
       if (b.x > Rt) { if (b.vx > 120) ripple(Rt + b.r, b.y, b.r * 2.5, 0.8, 0.6); b.x = Rt; b.vx = -b.vx * 0.45; }
       if (b.y < T) { if (b.vy < -120) ripple(b.x, T - b.r, b.r * 2.5, 0.8, 0.6); b.y = T; b.vy = -b.vy * 0.45; }
       if (b.y > B) { if (b.vy > 120) ripple(b.x, B + b.r, b.r * 2.5, 0.8, 0.6); b.y = B; b.vy = -b.vy * 0.45; }
-      if (level === 3) collideRing(b, d);
+      if (ROPE[level]) collideRing(b, d);
       if (pilings.length) collidePilings(b);
       if (DUCK_COUNT[level]) for (const k of ducks) {
         const hit = collide(b, 1, k, DUCK_MASS, 0.75);
@@ -762,7 +764,7 @@
     roundRect(pool.x, pool.y, pool.w, pool.h, pool.r); ctx.stroke();
     drawVortex(wt);
     drawRipples(dt);
-    if (level === 3) drawRing(wt);
+    if (ROPE[level]) drawRing(wt);
     if (DUCK_COUNT[level]) drawDucks(wt);
     if (pilings.length) drawPilings(wt);
     if (ball && state !== 'dropping') drawBall(wt);
